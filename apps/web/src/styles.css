@@ -1,0 +1,18 @@
+:root { font-family: Inter, system-ui, sans-serif; color: #172033; background: #f5f7fb; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+.shell { max-width: 1180px; margin: 0 auto; padding: 28px; }
+.header { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.brand { font-weight: 900; letter-spacing: .12em; }
+.tagline { color: #667085; font-size: 14px; }
+.hero { margin: 90px 0 48px; max-width: 780px; }
+.eyebrow { font-size: 12px; font-weight: 800; letter-spacing: .16em; color: #667085; }
+h1 { font-size: clamp(48px, 8vw, 88px); line-height: .95; margin: 14px 0; }
+.subtitle { font-size: 20px; line-height: 1.5; color: #667085; }
+.search { margin-top: 32px; padding: 22px 24px; border: 1px solid #d9dee8; border-radius: 18px; background: white; color: #8a93a3; box-shadow: 0 12px 40px rgba(30, 42, 70, .07); }
+.search span { float: right; font-size: 24px; color: #172033; }
+.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.grid article { min-height: 150px; padding: 22px; background: white; border: 1px solid #e3e7ef; border-radius: 18px; }
+.grid p { color: #667085; line-height: 1.5; }
+@media (max-width: 800px) { .header { align-items: flex-start; flex-direction: column; } .hero { margin-top: 60px; } .grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 520px) { .shell { padding: 18px; } .grid { grid-template-columns: 1fr; } }
