@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { requireAuth } from '../middleware/auth.js';
 
@@ -18,8 +18,9 @@ export async function documentRoutes(app: FastifyInstance) {
     const dir = process.env.STORAGE_DIR ?? './storage';
     await mkdir(path.join(dir, request.user.id), {recursive:true});
     await writeFile(path.join(dir, key), buffer, {flag:'wx'});
+    const checksum = createHash('sha256').update(buffer).digest('hex');
     const document = await app.prisma.document.create({data:{userId:request.user.id,title:file.filename,documentType:file.mimetype==='application/pdf'?'PDF':file.mimetype.startsWith('image/')?'IMAGE':'TEXT',mimeType:file.mimetype,fileSize:buffer.length,storageKey:key,status:'UPLOADED'}});
-    await app.prisma.documentVersion.create({data:{documentId:document.id,version:1,storageKey:key,checksum:randomUUID()}});
+    await app.prisma.documentVersion.create({data:{documentId:document.id,version:1,storageKey:key,checksum}});
     return reply.code(201).send(document);
   });
 }
