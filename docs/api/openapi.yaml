@@ -1,0 +1,144 @@
+openapi: 3.0.3
+info:
+  title: LIFEOS API
+  version: 1.0.0
+  description: Personal operating system API for documents, memories, tasks, assets, search and AI assistance.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+paths:
+  /auth/register:
+    post:
+      security: []
+      summary: Register a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201': { description: Created }
+        '400': { $ref: '#/components/responses/ValidationError' }
+  /auth/login:
+    post:
+      security: []
+      summary: Login
+      responses:
+        '200': { description: Authenticated }
+        '401': { description: Invalid credentials }
+  /me:
+    get:
+      summary: Get current profile
+      responses:
+        '200': { description: Profile }
+    patch:
+      summary: Update current profile
+      responses:
+        '200': { description: Updated profile }
+  /documents:
+    get:
+      summary: List documents
+      responses:
+        '200': { description: Document list }
+    post:
+      summary: Create a document upload
+      responses:
+        '201': { description: Created }
+  /documents/{id}:
+    get:
+      summary: Get document
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { description: Document }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      summary: Delete document
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204': { description: Deleted }
+  /documents/{id}/process:
+    post:
+      summary: Queue document processing
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '202': { description: Processing queued }
+  /search:
+    get:
+      summary: Universal personal search
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string, minLength: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        '200': { description: Ranked results }
+  /memories:
+    get: { summary: List memories, responses: { '200': { description: Memories } } }
+    post: { summary: Create memory, responses: { '201': { description: Created } } }
+  /tasks:
+    get: { summary: List tasks, responses: { '200': { description: Tasks } } }
+    post: { summary: Create task, responses: { '201': { description: Created } } }
+  /tasks/{id}/complete:
+    post:
+      summary: Complete a task
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { description: Completed task }
+  /reminders:
+    get: { summary: List reminders, responses: { '200': { description: Reminders } } }
+    post: { summary: Create reminder, responses: { '201': { description: Created } } }
+  /assets:
+    get: { summary: List assets, responses: { '200': { description: Assets } } }
+    post: { summary: Create asset, responses: { '201': { description: Created } } }
+  /assistant/chat:
+    post:
+      summary: Ask the LIFEOS assistant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssistantRequest'
+      responses:
+        '200': { description: Assistant response with sources and actions }
+        '429': { description: AI rate limit exceeded }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Id:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    ValidationError:
+      description: Validation error
+    NotFound:
+      description: Resource not found
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 12 }
+        displayName: { type: string, maxLength: 120 }
+    AssistantRequest:
+      type: object
+      required: [message]
+      properties:
+        conversationId: { type: string, format: uuid }
+        message: { type: string, minLength: 1, maxLength: 10000 }
