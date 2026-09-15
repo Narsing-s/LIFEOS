@@ -1,0 +1,10 @@
+{
+  "name": "@lifeos/mobile",
+  "private": true,
+  "version": "0.1.0",
+  "description": "LIFEOS mobile client foundation",
+  "scripts": {
+    "dev": "echo 'Mobile app foundation ready'",
+    "typecheck": "echo 'Mobile typecheck placeholder'"
+  }
+}
