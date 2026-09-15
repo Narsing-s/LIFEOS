@@ -1,0 +1,351 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String       @id @default(uuid()) @db.Uuid
+  email               String       @unique
+  passwordHash        String       @map("password_hash")
+  displayName         String?      @map("display_name")
+  avatarUrl           String?      @map("avatar_url")
+  timezone            String       @default("UTC")
+  locale              String       @default("en")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+  deletedAt           DateTime?    @map("deleted_at")
+
+  preferences         UserPreference?
+  sessions            UserSession[]
+  documents           Document[]
+  memories            Memory[]
+  tasks               Task[]
+  reminders           Reminder[]
+  assets              Asset[]
+  expenses            Expense[]
+  trips               Trip[]
+  conversations       Conversation[]
+  entities            Entity[]
+  auditLogs            AuditLog[]
+
+  @@map("users")
+}
+
+model UserPreference {
+  userId                  String   @id @map("user_id") @db.Uuid
+  theme                   String   @default("system")
+  language                String   @default("en")
+  timezone                String   @default("UTC")
+  notificationPreferences Json     @default("{}") @map("notification_preferences")
+  aiPreferences           Json     @default("{}") @map("ai_preferences")
+  privacyPreferences      Json     @default("{}") @map("privacy_preferences")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
+}
+
+model UserSession {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  refreshTokenHash String   @map("refresh_token_hash")
+  deviceName       String?  @map("device_name")
+  ipHash           String?  @map("ip_hash")
+  userAgent        String?  @map("user_agent")
+  expiresAt        DateTime @map("expires_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+  revokedAt        DateTime? @map("revoked_at")
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_sessions")
+}
+
+model Document {
+  id          String              @id @default(uuid()) @db.Uuid
+  userId      String              @map("user_id") @db.Uuid
+  title       String
+  documentType String             @map("document_type")
+  mimeType    String              @map("mime_type")
+  fileSize    BigInt              @map("file_size")
+  storageKey  String              @map("storage_key")
+  status      String              @default("UPLOADED")
+  source      String              @default("UPLOAD")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+  deletedAt   DateTime?           @map("deleted_at")
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  versions    DocumentVersion[]
+  extractions DocumentExtraction[]
+  chunks      DocumentChunk[]
+  warranties  Warranty[]
+
+  @@index([userId, createdAt])
+  @@index([userId, documentType])
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id         String   @id @default(uuid()) @db.Uuid
+  documentId String   @map("document_id") @db.Uuid
+  version    Int
+  storageKey String   @map("storage_key")
+  checksum   String
+  createdAt  DateTime @default(now()) @map("created_at")
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, version])
+  @@map("document_versions")
+}
+
+model DocumentExtraction {
+  id              String   @id @default(uuid()) @db.Uuid
+  documentId      String   @map("document_id") @db.Uuid
+  extractionType  String   @map("extraction_type")
+  data            Json
+  confidence      Decimal? @db.Decimal(5, 4)
+  model           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  document        Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@map("document_extractions")
+}
+
+model DocumentChunk {
+  id         String   @id @default(uuid()) @db.Uuid
+  documentId String   @map("document_id") @db.Uuid
+  chunkIndex Int      @map("chunk_index")
+  content    String
+  metadata   Json     @default("{}")
+  embedding  Unsupported("vector(1536)")?
+  createdAt  DateTime @default(now()) @map("created_at")
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, chunkIndex])
+  @@map("document_chunks")
+}
+
+model Memory {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  type       String
+  title      String
+  content    String
+  importance Int      @default(5)
+  confidence Decimal? @db.Decimal(5, 4)
+  sourceType String?  @map("source_type")
+  sourceId   String?  @map("source_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  expiresAt  DateTime? @map("expires_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@index([userId, createdAt])
+  @@map("memories")
+}
+
+model Task {
+  id          String      @id @default(uuid()) @db.Uuid
+  userId      String      @map("user_id") @db.Uuid
+  title       String
+  description String?
+  status      String      @default("OPEN")
+  priority    String      @default("NORMAL")
+  dueAt       DateTime?   @map("due_at")
+  completedAt DateTime?   @map("completed_at")
+  sourceType  String?     @map("source_type")
+  sourceId    String?     @map("source_id") @db.Uuid
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reminders   Reminder[]
+
+  @@index([userId, status, dueAt])
+  @@map("tasks")
+}
+
+model Reminder {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  taskId     String?   @map("task_id") @db.Uuid
+  remindAt   DateTime  @map("remind_at")
+  channel    String    @default("IN_APP")
+  status     String    @default("PENDING")
+  repeatRule String?   @map("repeat_rule")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task       Task?     @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status, remindAt])
+  @@map("reminders")
+}
+
+model Asset {
+  id            String      @id @default(uuid()) @db.Uuid
+  userId        String      @map("user_id") @db.Uuid
+  name          String
+  category      String
+  brand         String?
+  model         String?
+  serialNumber  String?     @map("serial_number")
+  purchaseDate  DateTime?   @map("purchase_date") @db.Date
+  purchasePrice Decimal?    @map("purchase_price") @db.Decimal(14, 2)
+  currency      String      @default("INR")
+  status        String      @default("ACTIVE")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  warranties    Warranty[]
+
+  @@index([userId, category])
+  @@map("assets")
+}
+
+model Warranty {
+  id         String   @id @default(uuid()) @db.Uuid
+  assetId    String   @map("asset_id") @db.Uuid
+  provider   String?
+  startDate  DateTime @map("start_date") @db.Date
+  endDate    DateTime @map("end_date") @db.Date
+  coverage   String?
+  documentId String?  @map("document_id") @db.Uuid
+  asset      Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  document   Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([assetId, endDate])
+  @@map("warranties")
+}
+
+model Expense {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  amount      Decimal  @db.Decimal(14, 2)
+  currency    String   @default("INR")
+  merchant    String?
+  category    String?
+  expenseDate DateTime @map("expense_date") @db.Date
+  description String?
+  sourceType  String?  @map("source_type")
+  sourceId    String?  @map("source_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expenseDate])
+  @@index([userId, category])
+  @@map("expenses")
+}
+
+model Trip {
+  id          String     @id @default(uuid()) @db.Uuid
+  userId      String     @map("user_id") @db.Uuid
+  name        String
+  destination String?
+  startDate   DateTime?  @map("start_date") @db.Date
+  endDate     DateTime?  @map("end_date") @db.Date
+  status      String     @default("PLANNED")
+  notes       String?
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items       TripItem[]
+
+  @@index([userId, startDate])
+  @@map("trips")
+}
+
+model TripItem {
+  id         String    @id @default(uuid()) @db.Uuid
+  tripId     String    @map("trip_id") @db.Uuid
+  type       String
+  title      String
+  dateTime   DateTime? @map("date_time")
+  location   String?
+  documentId String?   @map("document_id") @db.Uuid
+  notes      String?
+  trip       Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId, dateTime])
+  @@map("trip_items")
+}
+
+model Conversation {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  title     String?
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@index([userId, updatedAt])
+  @@map("conversations")
+}
+
+model Message {
+  id             String       @id @default(uuid()) @db.Uuid
+  conversationId String       @map("conversation_id") @db.Uuid
+  role           String
+  content        String
+  metadata       Json         @default("{}")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+model Entity {
+  id         String              @id @default(uuid()) @db.Uuid
+  userId     String              @map("user_id") @db.Uuid
+  type       String
+  name       String
+  metadata   Json                @default("{}")
+  createdAt  DateTime            @default(now()) @map("created_at")
+  updatedAt  DateTime            @updatedAt @map("updated_at")
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromLinks  EntityRelationship[] @relation("fromEntity")
+  toLinks    EntityRelationship[] @relation("toEntity")
+
+  @@index([userId, type])
+  @@index([userId, name])
+  @@map("entities")
+}
+
+model EntityRelationship {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  fromEntityId String   @map("from_entity_id") @db.Uuid
+  toEntityId   String   @map("to_entity_id") @db.Uuid
+  relationshipType String @map("relationship_type")
+  confidence   Decimal? @db.Decimal(5, 4)
+  createdAt    DateTime @default(now()) @map("created_at")
+  fromEntity   Entity   @relation("fromEntity", fields: [fromEntityId], references: [id], onDelete: Cascade)
+  toEntity     Entity   @relation("toEntity", fields: [toEntityId], references: [id], onDelete: Cascade)
+
+  @@index([userId, fromEntityId])
+  @@index([userId, toEntityId])
+  @@map("entity_relationships")
+}
+
+model AuditLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  actorType    String   @map("actor_type")
+  action       String
+  resourceType String   @map("resource_type")
+  resourceId   String?  @map("resource_id") @db.Uuid
+  metadata     Json     @default("{}")
+  ipHash       String?  @map("ip_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([resourceType, resourceId])
+  @@map("audit_logs")
+}
