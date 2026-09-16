@@ -16,8 +16,10 @@ export async function expansionRoutes(app: FastifyInstance) {
     let state: {userId:string};
     try { state = jwt.verify(q.state, env.JWT_SECRET) as {userId:string}; } catch { return reply.code(400).send({error:'Invalid or expired OAuth state'}); }
     const token = await exchangeGoogleCode(q.code);
-    await app.prisma.$executeRaw(Prisma.sql`INSERT INTO integration_connections (user_id, provider, account_id, status, access_token_encrypted, refresh_token_encrypted, token_expires_at, scopes) VALUES (${state.userId}, 'GOOGLE', 'default', 'CONNECTED', ${token.accessTokenEncrypted}, ${token.refreshTokenEncrypted ?? null}, ${token.expiresAt ?? null}, ${JSON.stringify(token.scopes)}::jsonb) ON CONFLICT (user_id, provider, account_id) DO UPDATE SET access_token_encrypted=EXCLUDED.access_token_encrypted, refresh_token_encrypted=COALESCE(EXCLUDED.refresh_token_encrypted,integration_connections.refresh_token_encrypted), token_expires_at=EXCLUDED.token_expires_at, scopes=EXCLUDED.scopes, status='CONNECTED', updated_at=now()`);
-    return { ok:true, provider:'GOOGLE', message:'Google connected. Run sync to import permitted data.' };
+    await app.prisma.$executeRaw(Prisma.sql`INSERT INTO integration_connections (user_id, provider, account_id, account_email, status, access_token_encrypted, refresh_token_encrypted, token_expires_at, scopes) VALUES (${state.userId}, 'GOOGLE', ${token.accountId}, ${token.accountEmail ?? null}, 'CONNECTED', ${token.accessTokenEncrypted}, ${token.refreshTokenEncrypted ?? null}, ${token.expiresAt ?? null}, ${JSON.stringify(token.scopes)}::jsonb) ON CONFLICT (user_id, provider, account_id) DO UPDATE SET account_email=EXCLUDED.account_email, access_token_encrypted=EXCLUDED.access_token_encrypted, refresh_token_encrypted=COALESCE(EXCLUDED.refresh_token_encrypted,integration_connections.refresh_token_encrypted), token_expires_at=EXCLUDED.token_expires_at, scopes=EXCLUDED.scopes, status='CONNECTED', updated_at=now()`);
+    const redirect = new URL(env.WEB_ORIGIN);
+    redirect.searchParams.set('google', 'connected');
+    return reply.redirect(redirect.toString());
   });
 
   app.addHook('preHandler', requireAuth);
