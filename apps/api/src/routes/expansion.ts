@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { Prisma } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
+import { createHash, randomUUID } from 'node:crypto';
 import { env } from '../config/env.js';
 import { requireAuth } from '../middleware/auth.js';
 import { decryptSecret } from '../services/crypto.js';
@@ -13,30 +14,27 @@ const idParam = z.object({ id: z.string().uuid() });
 export async function expansionRoutes(app: FastifyInstance) {
   app.get('/integrations/google/callback', async (r, reply) => {
     const q = z.object({ code:z.string().min(1), state:z.string().min(1) }).parse(r.query);
-    let state: {userId:string};
-    try { state = jwt.verify(q.state, env.JWT_SECRET) as {userId:string}; } catch { return reply.code(400).send({error:'Invalid or expired OAuth state'}); }
+    let state: {userId:string;nonce:string};
+    try { state = jwt.verify(q.state, env.JWT_SECRET) as {userId:string;nonce:string}; } catch { return reply.code(400).send({error:'Invalid or expired OAuth state'}); }
+    if (!state.userId || !state.nonce) return reply.code(400).send({error:'Invalid OAuth state'});
+    const consumed = await app.prisma.$queryRaw<{user_id:string}[]>(Prisma.sql`DELETE FROM oauth_states WHERE user_id=${state.userId} AND state_hash=${createHash('sha256').update(state.nonce).digest('hex')} AND expires_at > now() RETURNING user_id`);
+    if (!consumed[0]) return reply.code(400).send({error:'OAuth state was already used or expired'});
     const token = await exchangeGoogleCode(q.code);
     await app.prisma.$executeRaw(Prisma.sql`INSERT INTO integration_connections (user_id, provider, account_id, account_email, status, access_token_encrypted, refresh_token_encrypted, token_expires_at, scopes) VALUES (${state.userId}, 'GOOGLE', ${token.accountId}, ${token.accountEmail ?? null}, 'CONNECTED', ${token.accessTokenEncrypted}, ${token.refreshTokenEncrypted ?? null}, ${token.expiresAt ?? null}, ${JSON.stringify(token.scopes)}::jsonb) ON CONFLICT (user_id, provider, account_id) DO UPDATE SET account_email=EXCLUDED.account_email, access_token_encrypted=EXCLUDED.access_token_encrypted, refresh_token_encrypted=COALESCE(EXCLUDED.refresh_token_encrypted,integration_connections.refresh_token_encrypted), token_expires_at=EXCLUDED.token_expires_at, scopes=EXCLUDED.scopes, status='CONNECTED', updated_at=now()`);
-    const redirect = new URL(env.WEB_ORIGIN);
-    redirect.searchParams.set('google', 'connected');
-    return reply.redirect(redirect.toString());
+    const redirect = new URL(env.WEB_ORIGIN); redirect.searchParams.set('google','connected'); return reply.redirect(redirect.toString());
   });
 
   app.addHook('preHandler', requireAuth);
   app.get('/integrations', async r => app.prisma.$queryRaw(Prisma.sql`SELECT id, provider, account_id AS "accountId", account_email AS "accountEmail", status, scopes, last_synced_at AS "lastSyncedAt", created_at AS "createdAt" FROM integration_connections WHERE user_id=${r.user.id} ORDER BY created_at DESC`));
-  app.get('/integrations/google/connect', async r => ({ authorizationUrl: googleAuthorizationUrl(jwt.sign({userId:r.user.id,nonce:crypto.randomUUID()},env.JWT_SECRET,{expiresIn:'10m'})) }));
-
-  app.delete('/integrations/:id', async (r, reply) => {
-    const {id}=idParam.parse(r.params);
-    const rows=await app.prisma.$queryRaw<{provider:string;access_token_encrypted:string|null}[]>(Prisma.sql`SELECT provider,access_token_encrypted FROM integration_connections WHERE id=${id} AND user_id=${r.user.id} LIMIT 1`);
-    if(!rows[0]) return reply.code(404).send({error:'Integration not found'});
-    if(rows[0].provider==='GOOGLE' && rows[0].access_token_encrypted) {
-      try { await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(decryptSecret(rows[0].access_token_encrypted))}`,{method:'POST'}); } catch { /* local deletion still guarantees provider data is no longer usable by LIFEOS */ }
-    }
-    await app.prisma.$executeRaw(Prisma.sql`DELETE FROM integration_connections WHERE id=${id} AND user_id=${r.user.id}`);
-    return {ok:true};
+  app.get('/integrations/google/connect', async r => {
+    const nonce = randomUUID();
+    const digest = createHash('sha256').update(nonce).digest('hex');
+    await app.prisma.$executeRaw(Prisma.sql`DELETE FROM oauth_states WHERE expires_at <= now()`);
+    await app.prisma.$executeRaw(Prisma.sql`INSERT INTO oauth_states(user_id,state_hash,expires_at) VALUES(${r.user.id},${digest},now()+interval '10 minutes')`);
+    return { authorizationUrl: googleAuthorizationUrl(jwt.sign({userId:r.user.id,nonce},env.JWT_SECRET,{expiresIn:'10m'})) };
   });
 
+  app.delete('/integrations/:id', async (r, reply) => { const {id}=idParam.parse(r.params); const rows=await app.prisma.$queryRaw<{provider:string;access_token_encrypted:string|null}[]>(Prisma.sql`SELECT provider,access_token_encrypted FROM integration_connections WHERE id=${id} AND user_id=${r.user.id} LIMIT 1`); if(!rows[0]) return reply.code(404).send({error:'Integration not found'}); if(rows[0].provider==='GOOGLE'&&rows[0].access_token_encrypted){try{await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(decryptSecret(rows[0].access_token_encrypted))}`,{method:'POST'});}catch{}} await app.prisma.$executeRaw(Prisma.sql`DELETE FROM integration_connections WHERE id=${id} AND user_id=${r.user.id}`); return {ok:true}; });
   app.get('/timeline', async r => { const q=z.object({from:z.string().datetime().optional(),to:z.string().datetime().optional(),limit:z.coerce.number().int().min(1).max(200).default(100)}).parse(r.query); return app.prisma.$queryRaw(Prisma.sql`SELECT * FROM timeline_events WHERE user_id=${r.user.id} AND (${q.from ? Prisma.sql`occurred_at >= ${new Date(q.from)}` : Prisma.sql`true`}) AND (${q.to ? Prisma.sql`occurred_at <= ${new Date(q.to)}` : Prisma.sql`true`}) ORDER BY occurred_at DESC LIMIT ${q.limit}`); });
   app.post('/timeline', async r => { const b=z.object({eventType:z.string().max(60),title:z.string().min(1).max(500),description:z.string().optional(),occurredAt:z.string().datetime(),endAt:z.string().datetime().optional(),sourceProvider:z.string().max(40).optional(),sourceId:z.string().max(255).optional(),location:z.any().optional(),people:z.array(z.any()).default([]),linkedRecords:z.array(z.any()).default([]),metadata:z.any().default({})}).parse(r.body); return app.prisma.$queryRaw(Prisma.sql`INSERT INTO timeline_events (user_id,event_type,title,description,occurred_at,end_at,source_provider,source_id,location,people,linked_records,metadata) VALUES (${r.user.id},${b.eventType},${b.title},${b.description??null},${new Date(b.occurredAt)},${b.endAt?new Date(b.endAt):null},${b.sourceProvider??null},${b.sourceId??null},${json(b.location)}::jsonb,${json(b.people)}::jsonb,${json(b.linkedRecords)}::jsonb,${json(b.metadata)}::jsonb) RETURNING *`); });
   app.get('/inbox', async r => app.prisma.$queryRaw(Prisma.sql`SELECT * FROM inbox_items WHERE user_id=${r.user.id} ORDER BY received_at DESC LIMIT 100`));
