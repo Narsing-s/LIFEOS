@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import Constants from 'expo-constants';
 
-const apiUrl = String(Constants.expoConfig?.extra?.apiUrl ?? 'http://localhost:4000/api/v1');
+const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
 async function request(path: string, token?: string, init?: RequestInit) {
   const response = await fetch(`${apiUrl}${path}`, { ...init, headers: { 'content-type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(init?.headers ?? {}) } });
