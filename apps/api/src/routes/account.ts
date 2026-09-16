@@ -1,8 +1,19 @@
 import type { FastifyInstance } from 'fastify';
 import { Prisma } from '@prisma/client';
+import { rm } from 'node:fs/promises';
+import path from 'node:path';
+import { decryptSecret } from '../services/crypto.js';
 import { requireAuth } from '../middleware/auth.js';
 
 const jsonSafe = (value: unknown) => JSON.parse(JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? item.toString() : item));
+
+async function revokeGoogleToken(token: string) {
+  try {
+    await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`, { method: 'POST' });
+  } catch {
+    // Account deletion must not be blocked by an unavailable provider revoke endpoint.
+  }
+}
 
 export async function accountRoutes(app: FastifyInstance) {
   app.get('/account/export', { preHandler: requireAuth }, async request => {
@@ -28,6 +39,37 @@ export async function accountRoutes(app: FastifyInstance) {
       app.prisma.$queryRaw(Prisma.sql`SELECT * FROM automation_rules WHERE user_id=${uid}`),
       app.prisma.$queryRaw(Prisma.sql`SELECT * FROM sync_runs WHERE user_id=${uid} ORDER BY started_at DESC`),
     ]);
-    return jsonSafe({ exportedAt:new Date().toISOString(), version:'1.8', user, preferences, tasks, memories, assets, documents, expenses, trips, conversations, entities, timeline, inbox, integrations, financeSubscriptions, budgets, goals, notifications, automations, syncRuns });
+    return jsonSafe({ exportedAt:new Date().toISOString(), version:'1.9', user, preferences, tasks, memories, assets, documents, expenses, trips, conversations, entities, timeline, inbox, integrations, financeSubscriptions, budgets, goals, notifications, automations, syncRuns });
+  });
+
+  app.delete('/account', { preHandler: requireAuth, config: { rateLimit: { max: 2, timeWindow: '1 hour' } } }, async (request, reply) => {
+    const uid = request.user.id;
+    const body = (request.body ?? {}) as { confirmation?: string };
+    if (body.confirmation !== 'DELETE MY ACCOUNT') {
+      return reply.code(400).send({ error: 'Type DELETE MY ACCOUNT to confirm permanent account deletion' });
+    }
+
+    const connections = await app.prisma.$queryRaw<Array<{ access_token_encrypted: string | null; refresh_token_encrypted: string | null }>>(Prisma.sql`
+      SELECT access_token_encrypted, refresh_token_encrypted FROM integration_connections WHERE user_id=${uid}
+    `);
+    for (const connection of connections) {
+      const encrypted = connection.refresh_token_encrypted ?? connection.access_token_encrypted;
+      if (encrypted) {
+        try { await revokeGoogleToken(decryptSecret(encrypted)); } catch { /* best effort */ }
+      }
+    }
+
+    // Database relations use ON DELETE CASCADE for the user's LIFEOS records.
+    // File bytes live outside PostgreSQL, so remove the per-user storage tree too.
+    const storageDir = process.env.STORAGE_DIR ?? './storage';
+    const userStorageDir = path.join(storageDir, uid);
+    await app.prisma.user.delete({ where: { id: uid } });
+    try {
+      await rm(userStorageDir, { recursive: true, force: true });
+    } catch (error) {
+      request.log.error({ error, userId: uid }, 'Account deleted but user storage cleanup failed');
+    }
+
+    return reply.code(204).send();
   });
 }
