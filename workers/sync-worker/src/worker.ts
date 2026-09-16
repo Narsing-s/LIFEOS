@@ -68,7 +68,7 @@ async function importGmail(connection: Connection, token: string) {
       if (!message.id) continue;
       const detail = await googleJson(`gmail/v1/users/me/messages/${message.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`, token);
       const headers = Object.fromEntries((detail.payload?.headers ?? []).map((h: any) => [String(h.name).toLowerCase(), h.value]));
-      await db.$executeRaw(Prisma.sql`INSERT INTO inbox_items(user_id,source_provider,source_id,kind,title,content,received_at,metadata) VALUES(${connection.user_id},'GOOGLE_GMAIL',${message.id},'EMAIL',${headers.subject ?? '(no subject)'},${headers.snippet ?? null},${headers.date ? new Date(headers.date) : new Date()},${JSON.stringify({ threadId: detail.threadId ?? null, from: headers.from ?? null })}::jsonb) ON CONFLICT (user_id, source_provider, source_id) DO UPDATE SET title=EXCLUDED.title,content=EXCLUDED.content,received_at=EXCLUDED.received_at,metadata=EXCLUDED.metadata`);
+      await db.$executeRaw(Prisma.sql`INSERT INTO inbox_items(user_id,source_provider,source_id,kind,title,content,received_at,metadata) VALUES(${connection.user_id},'GOOGLE_GMAIL',${message.id},'EMAIL',${headers.subject ?? '(no subject)'},${detail.snippet ?? null},${headers.date ? new Date(headers.date) : new Date()},${JSON.stringify({ threadId: detail.threadId ?? null, from: headers.from ?? null })}::jsonb) ON CONFLICT (user_id, source_provider, source_id) DO UPDATE SET title=EXCLUDED.title,content=EXCLUDED.content,received_at=EXCLUDED.received_at,metadata=EXCLUDED.metadata`);
       imported++;
     }
     pageToken = gmail.nextPageToken ?? '';
@@ -79,7 +79,8 @@ async function importGmail(connection: Connection, token: string) {
 async function importContacts(connection: Connection, token: string) {
   let imported = 0, pageToken = '';
   do {
-    const query = new URLSearchParams({ pageSize: '1000', personFields: 'names,emailAddresses,phoneNumbers,organizations' });
+    // People API connections.list accepts pageSize up to 500.
+    const query = new URLSearchParams({ pageSize: '500', personFields: 'names,emailAddresses,phoneNumbers,organizations' });
     if (pageToken) query.set('pageToken', pageToken);
     const people = await googleJson(`https://people.googleapis.com/v1/people/me/connections?${query}`, token);
     for (const person of people.connections ?? []) {
@@ -129,7 +130,6 @@ async function syncGoogle(connection: Connection, runId: string) {
 }
 
 async function processRun(run: any) {
-  await db.$executeRaw(Prisma.sql`UPDATE sync_runs SET status='RUNNING',started_at=COALESCE(started_at,now()) WHERE id=${run.id}`);
   try {
     const rows = await db.$queryRaw<Connection[]>(Prisma.sql`SELECT id,user_id,provider,access_token_encrypted,refresh_token_encrypted FROM integration_connections WHERE id=${run.connection_id} AND status='CONNECTED' LIMIT 1`);
     const connection = rows[0];
@@ -142,7 +142,22 @@ async function processRun(run: any) {
 }
 
 async function loop() {
-  const runs = await db.$queryRaw<any[]>(Prisma.sql`SELECT id,connection_id FROM sync_runs WHERE status='QUEUED' ORDER BY created_at ASC LIMIT 3`);
+  // Recover jobs abandoned by a crashed worker, then atomically claim a batch.
+  await db.$executeRaw(Prisma.sql`UPDATE sync_runs SET status='FAILED',finished_at=now(),error_count=1,error='Worker timeout' WHERE status='RUNNING' AND started_at < now() - interval '30 minutes'`);
+  const runs = await db.$queryRaw<any[]>(Prisma.sql`
+    WITH claimed AS (
+      SELECT id FROM sync_runs
+      WHERE status='QUEUED'
+      ORDER BY created_at ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT 3
+    )
+    UPDATE sync_runs s
+    SET status='RUNNING', started_at=COALESCE(s.started_at,now())
+    FROM claimed
+    WHERE s.id=claimed.id
+    RETURNING s.id,s.connection_id
+  `);
   for (const run of runs) await processRun(run);
 }
 
