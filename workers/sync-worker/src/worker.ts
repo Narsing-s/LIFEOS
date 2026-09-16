@@ -3,6 +3,12 @@ import { decryptSecret, encryptSecret } from './crypto.js';
 
 const db = new PrismaClient();
 type Connection = { id: string; user_id: string; provider: string; access_token_encrypted: string; refresh_token_encrypted: string | null };
+const MAX_GOOGLE_RETRIES = 3;
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+let shuttingDown = false;
+let loopRunning = false;
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function refreshGoogle(connection: Connection) {
   const access = decryptSecret(connection.access_token_encrypted);
@@ -21,9 +27,19 @@ async function refreshGoogle(connection: Connection) {
 
 async function googleJson(urlOrPath: string, token: string, init?: RequestInit) {
   const url = /^https?:\/\//.test(urlOrPath) ? urlOrPath : `https://www.googleapis.com/${urlOrPath}`;
-  const response = await fetch(url, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init?.headers ?? {}) } });
-  if (!response.ok) throw new Error(`Google API ${response.status}: ${url}`);
-  return response.json() as Promise<any>;
+  for (let attempt = 0; attempt <= MAX_GOOGLE_RETRIES; attempt++) {
+    const response = await fetch(url, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init?.headers ?? {}) } });
+    if (response.ok) return response.json() as Promise<any>;
+    if (!RETRYABLE_STATUS.has(response.status) || attempt === MAX_GOOGLE_RETRIES) {
+      throw new Error(`Google API ${response.status}: ${url}`);
+    }
+    const retryAfter = Number(response.headers.get('retry-after'));
+    const delay = Number.isFinite(retryAfter) && retryAfter > 0
+      ? Math.min(retryAfter * 1000, 30_000)
+      : Math.min(1000 * 2 ** attempt, 30_000);
+    await sleep(delay);
+  }
+  throw new Error(`Google API request exhausted retries: ${url}`);
 }
 
 async function importCalendar(connection: Connection, token: string) {
@@ -79,7 +95,6 @@ async function importGmail(connection: Connection, token: string) {
 async function importContacts(connection: Connection, token: string) {
   let imported = 0, pageToken = '';
   do {
-    // People API connections.list accepts pageSize up to 500.
     const query = new URLSearchParams({ pageSize: '500', personFields: 'names,emailAddresses,phoneNumbers,organizations' });
     if (pageToken) query.set('pageToken', pageToken);
     const people = await googleJson(`https://people.googleapis.com/v1/people/me/connections?${query}`, token);
@@ -142,24 +157,45 @@ async function processRun(run: any) {
 }
 
 async function loop() {
-  // Recover jobs abandoned by a crashed worker, then atomically claim a batch.
-  await db.$executeRaw(Prisma.sql`UPDATE sync_runs SET status='FAILED',finished_at=now(),error_count=1,error='Worker timeout' WHERE status='RUNNING' AND started_at < now() - interval '30 minutes'`);
-  const runs = await db.$queryRaw<any[]>(Prisma.sql`
-    WITH claimed AS (
-      SELECT id FROM sync_runs
-      WHERE status='QUEUED'
-      ORDER BY created_at ASC
-      FOR UPDATE SKIP LOCKED
-      LIMIT 3
-    )
-    UPDATE sync_runs s
-    SET status='RUNNING', started_at=COALESCE(s.started_at,now())
-    FROM claimed
-    WHERE s.id=claimed.id
-    RETURNING s.id,s.connection_id
-  `);
-  for (const run of runs) await processRun(run);
+  if (shuttingDown || loopRunning) return;
+  loopRunning = true;
+  try {
+    // Recover jobs abandoned by a crashed worker, then atomically claim a batch.
+    await db.$executeRaw(Prisma.sql`UPDATE sync_runs SET status='FAILED',finished_at=now(),error_count=1,error='Worker timeout' WHERE status='RUNNING' AND started_at < now() - interval '30 minutes'`);
+    const runs = await db.$queryRaw<any[]>(Prisma.sql`
+      WITH claimed AS (
+        SELECT id FROM sync_runs
+        WHERE status='QUEUED'
+        ORDER BY created_at ASC
+        FOR UPDATE SKIP LOCKED
+        LIMIT 3
+      )
+      UPDATE sync_runs s
+      SET status='RUNNING', started_at=COALESCE(s.started_at,now())
+      FROM claimed
+      WHERE s.id=claimed.id
+      RETURNING s.id,s.connection_id
+    `);
+    for (const run of runs) {
+      if (shuttingDown) break;
+      await processRun(run);
+    }
+  } finally {
+    loopRunning = false;
+  }
 }
+
+const shutdown = async (signal: string) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`LIFEOS sync worker stopping (${signal})`);
+  while (loopRunning) await sleep(100);
+  await db.$disconnect();
+  process.exit(0);
+};
+
+process.once('SIGTERM', () => void shutdown('SIGTERM'));
+process.once('SIGINT', () => void shutdown('SIGINT'));
 
 console.log('LIFEOS sync worker started');
 setInterval(() => loop().catch(err => console.error('sync loop', err)), 3000);
