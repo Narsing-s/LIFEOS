@@ -1,0 +1,10 @@
+{
+  "name": "LIFEOS — Personal Operating System",
+  "short_name": "LIFEOS",
+  "description": "Everything about your life. One intelligent place.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6fa",
+  "theme_color": "#172033",
+  "icons": []
+}

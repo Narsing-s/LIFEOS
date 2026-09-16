@@ -8,24 +8,20 @@ LIFEOS is a privacy-first personal operating system that connects documents, mem
 
 **Capture → Understand → Connect → Search → Ask → Act → Remember**
 
-## V1 implementation
-
-The repository now contains a working V1 foundation with:
+## Current capabilities
 
 - JWT authentication and account creation
 - PostgreSQL + Prisma data model
-- Personal dashboard API
-- User-scoped universal search across documents, memories, tasks and assets
-- Task creation and completion
-- Personal memory creation/listing
-- Asset and warranty data model
-- Multipart document upload with size/type validation and SHA-256 checksums
-- Assistant endpoint with explicit, user-scoped retrieval tools and source IDs
-- Responsive LIFEOS web dashboard with sign-in, task capture and Ask Your Life
-- Docker services for PostgreSQL/pgvector, Redis and MinIO
-- OpenAPI contract and CI-ready monorepo structure
-
-The AI endpoint is deliberately safe-by-default: it retrieves only records belonging to the authenticated user. A production LLM provider can be connected through the AI orchestration layer without granting the model raw database access.
+- User-scoped universal search
+- Tasks, memories, assets, expenses and documents
+- Assistant retrieval with user-scoped source IDs
+- Responsive web dashboard
+- Google OAuth connection foundation
+- Encrypted provider-token storage with a dedicated production encryption key
+- Timeline, universal inbox, finance, notifications and automation data models
+- Sync lifecycle/history APIs
+- CI typecheck + build validation
+- Installable web-app/PWA metadata
 
 ## Architecture
 
@@ -35,7 +31,7 @@ The AI endpoint is deliberately safe-by-default: it retrieves only records belon
 
 - `apps/api` — REST API and AI orchestration
 - `apps/web` — web client
-- `apps/mobile` — future mobile client
+- `apps/mobile` — reserved for the mobile client
 - `workers/*` — asynchronous processing
 - `packages/database` — Prisma schema and database access
 - `packages/shared` — shared types/constants
@@ -60,6 +56,22 @@ pnpm dev
 Web: `http://localhost:5173`
 API health: `http://localhost:4000/health`
 
-For production, replace local filesystem storage with S3-compatible object storage, provide a managed PostgreSQL/pgvector database, use a secret manager for JWT secrets, and run document/AI/notification processing asynchronously.
+## Production readiness
 
-See `docs/architecture/overview.md` for the production architecture and `docs/api/openapi.yaml` for the API contract.
+Before a public production launch, verify every item below with the target deployment configuration:
+
+- [ ] Set a unique random `JWT_SECRET` and `INTEGRATION_ENCRYPTION_KEY` (never commit secrets).
+- [ ] Configure Google OAuth redirect URI and required APIs in Google Cloud.
+- [ ] Replace local MinIO/filesystem storage with durable S3-compatible storage.
+- [ ] Use managed PostgreSQL/pgvector and Redis with backups/retention.
+- [ ] Configure TLS, secure cookies/token storage and a strict production web origin.
+- [ ] Run database migrations as a controlled deployment step.
+- [ ] Run API/web typecheck, build, unit tests and browser E2E tests against staging.
+- [ ] Add alerting/metrics for sync failures, queue depth, API errors and database health.
+- [ ] Verify provider disconnect/revocation and deletion/export flows.
+- [ ] Verify Google Calendar/Drive/Gmail/Photos/Contacts imports with real test accounts and current provider API permissions.
+- [ ] Implement and verify the mobile/offline client if mobile is part of the launch scope.
+
+Provider credentials and external APIs are intentionally not bundled into the repository. A connected-provider feature is not considered production-ready until its real API import, refresh, retry, deduplication and deletion behavior has been tested in staging.
+
+See `docs/architecture/overview.md`, `docs/api/openapi.yaml`, and `docs/product/v1.md` for deeper contracts.
