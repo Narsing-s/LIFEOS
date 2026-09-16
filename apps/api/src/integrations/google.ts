@@ -1,6 +1,6 @@
 import { encryptSecret } from '../services/crypto.js';
 
-const scopes = [
+export const GOOGLE_SCOPES = [
   'openid', 'email', 'profile',
   'https://www.googleapis.com/auth/photoslibrary.readonly',
   'https://www.googleapis.com/auth/drive.readonly',
@@ -21,7 +21,7 @@ export function googleAuthorizationUrl(state: string) {
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('access_type', 'offline');
   url.searchParams.set('prompt', 'consent');
-  url.searchParams.set('scope', scopes.join(' '));
+  url.searchParams.set('scope', GOOGLE_SCOPES.join(' '));
   url.searchParams.set('state', state);
   return url.toString();
 }
@@ -34,5 +34,16 @@ export async function exchangeGoogleCode(code: string) {
   });
   if (!response.ok) throw new Error(`Google token exchange failed: ${response.status}`);
   const token = await response.json() as {access_token:string;refresh_token?:string;expires_in?:number;scope?:string};
-  return { accessTokenEncrypted: encryptSecret(token.access_token), refreshTokenEncrypted: token.refresh_token ? encryptSecret(token.refresh_token) : undefined, expiresAt: token.expires_in ? new Date(Date.now()+token.expires_in*1000) : undefined, scopes: token.scope?.split(' ') ?? scopes };
+  const userinfoResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { Authorization: `Bearer ${token.access_token}` } });
+  if (!userinfoResponse.ok) throw new Error(`Google userinfo lookup failed: ${userinfoResponse.status}`);
+  const userinfo = await userinfoResponse.json() as {sub?:string;email?:string};
+  if (!userinfo.sub) throw new Error('Google account identity was not returned');
+  return {
+    accountId: userinfo.sub,
+    accountEmail: userinfo.email,
+    accessTokenEncrypted: encryptSecret(token.access_token),
+    refreshTokenEncrypted: token.refresh_token ? encryptSecret(token.refresh_token) : undefined,
+    expiresAt: token.expires_in ? new Date(Date.now()+token.expires_in*1000) : undefined,
+    scopes: token.scope?.split(' ') ?? GOOGLE_SCOPES,
+  };
 }
