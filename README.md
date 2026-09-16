@@ -60,6 +60,26 @@ API readiness: `http://localhost:4000/ready`
 
 For a physical mobile device, set `EXPO_PUBLIC_API_URL` or the Expo app config API URL to an address reachable from the device instead of `localhost`.
 
+## Vercel web deployment
+
+The repository is configured for the `apps/web` Vite application. Import `Narsing-s/LIFEOS` into Vercel from the repository root; the committed `vercel.json` supplies the install/build/output configuration and SPA fallback.
+
+Required web environment variable:
+
+```text
+VITE_API_URL=https://<your-public-api-origin>/api/v1
+```
+
+Do not put API secrets in the web environment. Configure `JWT_SECRET`, database credentials, Google OAuth secrets and integration encryption keys only on the API/server deployment.
+
+After deployment, verify:
+
+1. `/` loads the LIFEOS authentication screen without a blank page.
+2. Refreshing a deep client-side route still returns the application shell.
+3. Static assets and the PWA manifest load successfully.
+4. `VITE_API_URL` points to the public API rather than `localhost`.
+5. API CORS allows the exact deployed web origin.
+
 ## Production readiness
 
 Before a public production launch, verify every item below with the target deployment configuration:
