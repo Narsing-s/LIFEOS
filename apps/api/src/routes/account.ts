@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { Prisma } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 
+const jsonSafe = (value: unknown) => JSON.parse(JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? item.toString() : item));
+
 export async function accountRoutes(app: FastifyInstance) {
   app.get('/account/export', { preHandler: requireAuth }, async request => {
     const uid = request.user.id;
@@ -26,6 +28,6 @@ export async function accountRoutes(app: FastifyInstance) {
       app.prisma.$queryRaw(Prisma.sql`SELECT * FROM automation_rules WHERE user_id=${uid}`),
       app.prisma.$queryRaw(Prisma.sql`SELECT * FROM sync_runs WHERE user_id=${uid} ORDER BY started_at DESC`),
     ]);
-    return { exportedAt:new Date().toISOString(), version:'1.8', user, preferences, tasks, memories, assets, documents, expenses, trips, conversations, entities, timeline, inbox, integrations, financeSubscriptions, budgets, goals, notifications, automations, syncRuns };
+    return jsonSafe({ exportedAt:new Date().toISOString(), version:'1.8', user, preferences, tasks, memories, assets, documents, expenses, trips, conversations, entities, timeline, inbox, integrations, financeSubscriptions, budgets, goals, notifications, automations, syncRuns });
   });
 }
