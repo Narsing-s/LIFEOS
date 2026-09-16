@@ -3,8 +3,13 @@
   "short_name": "LIFEOS",
   "description": "Everything about your life. One intelligent place.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "any",
   "background_color": "#f4f6fa",
   "theme_color": "#172033",
-  "icons": []
+  "icons": [
+    { "src": "/icons/lifeos-192.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "/icons/lifeos-512.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
 }
