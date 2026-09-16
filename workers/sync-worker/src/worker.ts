@@ -3,7 +3,6 @@ import { decryptSecret, encryptSecret } from './crypto.js';
 
 const db = new PrismaClient();
 type Connection = { id: string; user_id: string; provider: string; access_token_encrypted: string; refresh_token_encrypted: string | null };
-type GooglePage<T> = { nextPageToken?: string; [key: string]: unknown } & T;
 
 async function refreshGoogle(connection: Connection) {
   const access = decryptSecret(connection.access_token_encrypted);
@@ -12,11 +11,7 @@ async function refreshGoogle(connection: Connection) {
   if (expires > Date.now() + 60_000) return access;
   if (!connection.refresh_token_encrypted || !process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) return access;
   const refresh = decryptSecret(connection.refresh_token_encrypted);
-  const response = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, refresh_token: refresh, grant_type: 'refresh_token' }),
-  });
+  const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, refresh_token: refresh, grant_type: 'refresh_token' }) });
   if (!response.ok) throw new Error(`Google refresh failed: ${response.status}`);
   const token = await response.json() as { access_token: string; expires_in?: number };
   const expiresAt = token.expires_in ? new Date(Date.now() + token.expires_in * 1000) : null;
@@ -24,15 +19,15 @@ async function refreshGoogle(connection: Connection) {
   return token.access_token;
 }
 
-async function googleJson(path: string, token: string, init?: RequestInit) {
-  const response = await fetch(`https://www.googleapis.com/${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init?.headers ?? {}) } });
-  if (!response.ok) throw new Error(`Google API ${response.status}: ${path}`);
+async function googleJson(urlOrPath: string, token: string, init?: RequestInit) {
+  const url = /^https?:\/\//.test(urlOrPath) ? urlOrPath : `https://www.googleapis.com/${urlOrPath}`;
+  const response = await fetch(url, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init?.headers ?? {}) } });
+  if (!response.ok) throw new Error(`Google API ${response.status}: ${url}`);
   return response.json() as Promise<any>;
 }
 
 async function importCalendar(connection: Connection, token: string) {
-  let imported = 0;
-  let pageToken = '';
+  let imported = 0, pageToken = '';
   do {
     const query = new URLSearchParams({ maxResults: '2500', singleEvents: 'true', orderBy: 'startTime' });
     if (pageToken) query.set('pageToken', pageToken);
@@ -48,8 +43,7 @@ async function importCalendar(connection: Connection, token: string) {
 }
 
 async function importDrive(connection: Connection, token: string) {
-  let imported = 0;
-  let pageToken = '';
+  let imported = 0, pageToken = '';
   do {
     const query = new URLSearchParams({ pageSize: '100', orderBy: 'modifiedTime desc', fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,webViewLink)' });
     if (pageToken) query.set('pageToken', pageToken);
@@ -65,8 +59,7 @@ async function importDrive(connection: Connection, token: string) {
 }
 
 async function importGmail(connection: Connection, token: string) {
-  let imported = 0;
-  let pageToken = '';
+  let imported = 0, pageToken = '';
   do {
     const query = new URLSearchParams({ maxResults: '100' });
     if (pageToken) query.set('pageToken', pageToken);
@@ -84,8 +77,7 @@ async function importGmail(connection: Connection, token: string) {
 }
 
 async function importContacts(connection: Connection, token: string) {
-  let imported = 0;
-  let pageToken = '';
+  let imported = 0, pageToken = '';
   do {
     const query = new URLSearchParams({ pageSize: '1000', personFields: 'names,emailAddresses,phoneNumbers,organizations' });
     if (pageToken) query.set('pageToken', pageToken);
@@ -102,8 +94,7 @@ async function importContacts(connection: Connection, token: string) {
 }
 
 async function importPhotos(connection: Connection, token: string) {
-  let imported = 0;
-  let pageToken = '';
+  let imported = 0, pageToken = '';
   do {
     const body: Record<string, unknown> = { pageSize: 100 };
     if (pageToken) body.pageToken = pageToken;
