@@ -10,7 +10,7 @@ const credentials = z.object({
 });
 
 export async function authRoutes(app: FastifyInstance) {
-  app.post('/register', async (request, reply) => {
+  app.post('/register', { config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } }, async (request, reply) => {
     const body = credentials.parse(request.body);
     const existing = await app.prisma.user.findUnique({ where: { email: body.email } });
     if (existing) return reply.code(409).send({ error: 'An account with this email already exists' });
@@ -26,7 +26,7 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.code(201).send({ user, token: signToken({ id: user.id, email: user.email }) });
   });
 
-  app.post('/login', async (request, reply) => {
+  app.post('/login', { config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } }, async (request, reply) => {
     const body = credentials.pick({ email: true, password: true }).parse(request.body);
     const user = await app.prisma.user.findUnique({ where: { email: body.email } });
     if (!user || !(await bcrypt.compare(body.password, user.passwordHash))) {
