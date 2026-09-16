@@ -49,5 +49,16 @@ export async function expansionRoutes(app: FastifyInstance) {
   app.post('/automations', async r => { const b=z.object({name:z.string().min(1).max(160),triggerType:z.string().max(60),conditions:z.array(z.any()).default([]),actions:z.array(z.any()).default([]),enabled:z.boolean().default(true)}).parse(r.body); return app.prisma.$queryRaw(Prisma.sql`INSERT INTO automation_rules(user_id,name,trigger_type,conditions,actions,enabled) VALUES(${r.user.id},${b.name},${b.triggerType},${json(b.conditions)}::jsonb,${json(b.actions)}::jsonb,${b.enabled}) RETURNING *`); });
   app.patch('/automations/:id', async r => { const {id}=idParam.parse(r.params); const b=z.object({enabled:z.boolean().optional(),name:z.string().max(160).optional()}).parse(r.body); return app.prisma.$queryRaw(Prisma.sql`UPDATE automation_rules SET enabled=COALESCE(${b.enabled??null},enabled),name=COALESCE(${b.name??null},name),updated_at=now() WHERE id=${id} AND user_id=${r.user.id} RETURNING *`); });
   app.get('/sync/history', async r => app.prisma.$queryRaw(Prisma.sql`SELECT id,connection_id AS "connectionId",status,started_at AS "startedAt",finished_at AS "finishedAt",imported_count AS "importedCount",skipped_count AS "skippedCount",error_count AS "errorCount",error FROM sync_runs WHERE user_id=${r.user.id} ORDER BY started_at DESC LIMIT 50`));
-  app.post('/sync/:provider', async r => { const provider=z.string().min(1).max(40).parse((r.params as {provider:string}).provider.toUpperCase()); const rows=await app.prisma.$queryRaw<{id:string}[]>(Prisma.sql`SELECT id FROM integration_connections WHERE user_id=${r.user.id} AND provider=${provider} AND status='CONNECTED' LIMIT 1`); if(!rows[0]) return {ok:false,status:'NOT_CONNECTED',provider}; const active=await app.prisma.$queryRaw<{id:string}[]>(Prisma.sql`SELECT id FROM sync_runs WHERE connection_id=${rows[0].id} AND status IN ('QUEUED','RUNNING') LIMIT 1`); if(active[0]) return {ok:true,provider,status:'ALREADY_RUNNING',runId:active[0].id}; const run=await app.prisma.$queryRaw(Prisma.sql`INSERT INTO sync_runs(user_id,connection_id,status) VALUES(${r.user.id},${rows[0].id},'QUEUED') RETURNING id,status,started_at`); return {ok:true,provider,status:'QUEUED',run}; });
+  app.post('/sync/:provider', async r => {
+    const provider=z.string().min(1).max(40).parse((r.params as {provider:string}).provider.toUpperCase());
+    const rows=await app.prisma.$queryRaw<{id:string}[]>(Prisma.sql`SELECT id FROM integration_connections WHERE user_id=${r.user.id} AND provider=${provider} AND status='CONNECTED' LIMIT 1`);
+    if(!rows[0]) return {ok:false,status:'NOT_CONNECTED',provider};
+    const inserted=await app.prisma.$queryRaw<{id:string;status:string;started_at:Date}[]>(Prisma.sql`INSERT INTO sync_runs(user_id,connection_id,status)
+      VALUES(${r.user.id},${rows[0].id},'QUEUED')
+      ON CONFLICT (connection_id) WHERE status IN ('QUEUED','RUNNING') DO NOTHING
+      RETURNING id,status,started_at`);
+    if(inserted[0]) return {ok:true,provider,status:'QUEUED',run:inserted[0]};
+    const active=await app.prisma.$queryRaw<{id:string}[]>(Prisma.sql`SELECT id FROM sync_runs WHERE connection_id=${rows[0].id} AND status IN ('QUEUED','RUNNING') ORDER BY started_at ASC LIMIT 1`);
+    return {ok:true,provider,status:'ALREADY_RUNNING',runId:active[0]?.id};
+  });
 }
