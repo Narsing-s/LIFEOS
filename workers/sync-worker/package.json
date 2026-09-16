@@ -1,0 +1,9 @@
+{
+  "name": "@lifeos/sync-worker",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": { "dev": "tsx watch src/worker.ts", "build": "tsc", "start": "node dist/worker.js", "typecheck": "tsc --noEmit" },
+  "dependencies": { "@prisma/client": "^6.3.1", "jsonwebtoken": "^9.0.2" },
+  "devDependencies": { "tsx": "^4.19.2", "typescript": "^5.7.3" }
+}
