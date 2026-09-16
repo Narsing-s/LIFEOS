@@ -1,0 +1,32 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- LIFEOS V1.5 expansion tables. Keep provider payloads in JSON so adapters can evolve without destructive migrations.
+
+CREATE TABLE IF NOT EXISTS integration_connections (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider varchar(40) NOT NULL, account_id varchar(255), account_email varchar(320),
+  access_token_encrypted text, refresh_token_encrypted text, token_expires_at timestamptz,
+  scopes jsonb NOT NULL DEFAULT '[]', status varchar(30) NOT NULL DEFAULT 'CONNECTED',
+  metadata jsonb NOT NULL DEFAULT '{}', last_synced_at timestamptz, sync_cursor text,
+  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(user_id, provider, account_id)
+);
+CREATE INDEX IF NOT EXISTS integration_connections_user_idx ON integration_connections(user_id);
+CREATE TABLE IF NOT EXISTS timeline_events (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE, event_type varchar(60) NOT NULL, title varchar(500) NOT NULL, description text, occurred_at timestamptz NOT NULL, end_at timestamptz, timezone varchar(80), source_provider varchar(40), source_id varchar(255), location jsonb, people jsonb NOT NULL DEFAULT '[]', linked_records jsonb NOT NULL DEFAULT '[]', metadata jsonb NOT NULL DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(user_id, source_provider, source_id));
+CREATE INDEX IF NOT EXISTS timeline_events_user_time_idx ON timeline_events(user_id, occurred_at DESC);
+CREATE TABLE IF NOT EXISTS inbox_items (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE, source_provider varchar(40), source_id varchar(255), kind varchar(50) NOT NULL, title varchar(500) NOT NULL, content text, received_at timestamptz NOT NULL DEFAULT now(), classification varchar(50) NOT NULL DEFAULT 'INFORMATION', action_status varchar(30) NOT NULL DEFAULT 'UNREAD', metadata jsonb NOT NULL DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(user_id, source_provider, source_id));
+CREATE INDEX IF NOT EXISTS inbox_items_user_status_idx ON inbox_items(user_id, action_status, received_at DESC);
+CREATE TABLE IF NOT EXISTS finance_subscriptions (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE, merchant varchar(255) NOT NULL, amount numeric(14,2) NOT NULL, currency char(3) NOT NULL DEFAULT 'INR', cadence varchar(30) NOT NULL, next_charge_at timestamptz, status varchar(30) NOT NULL DEFAULT 'ACTIVE', source_type varchar(40), source_id uuid, metadata jsonb NOT NULL DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS finance_subscriptions_user_idx ON finance_subscriptions(user_id, status, next_charge_at);
+CREATE TABLE IF NOT EXISTS finance_budgets (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE, name varchar(160) NOT NULL, category varchar(100), amount numeric(14,2) NOT NULL, currency char(3) NOT NULL DEFAULT 'INR', period varchar(30) NOT NULL DEFAULT 'MONTHLY', starts_on date NOT NULL, ends_on date, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS finance_budgets_user_idx ON finance_budgets(user_id, starts_on);
+CREATE TABLE IF NOT EXISTS finance_goals (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE, name varchar(160) NOT NULL, target_amount numeric(14,2) NOT NULL, current_amount numeric(14,2) NOT NULL DEFAULT 0, currency char(3) NOT NULL DEFAULT 'INR', target_date date, status varchar(30) NOT NULL DEFAULT 'ACTIVE', metadata jsonb NOT NULL DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS finance_goals_user_idx ON finance_goals(user_id, status);
+CREATE TABLE IF NOT EXISTS notification_deliveries (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE, channel varchar(30) NOT NULL, type varchar(60) NOT NULL, title varchar(255) NOT NULL, body text NOT NULL, scheduled_at timestamptz NOT NULL, delivered_at timestamptz, status varchar(30) NOT NULL DEFAULT 'PENDING', provider_message_id varchar(255), metadata jsonb NOT NULL DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS notification_deliveries_user_idx ON notification_deliveries(user_id, status, scheduled_at);
+CREATE TABLE IF NOT EXISTS automation_rules (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE, name varchar(160) NOT NULL, enabled boolean NOT NULL DEFAULT true, trigger_type varchar(60) NOT NULL, conditions jsonb NOT NULL DEFAULT '[]', actions jsonb NOT NULL DEFAULT '[]', last_run_at timestamptz, run_count integer NOT NULL DEFAULT 0, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS automation_rules_user_idx ON automation_rules(user_id, enabled);
+CREATE TABLE IF NOT EXISTS sync_runs (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE, connection_id uuid REFERENCES integration_connections(id) ON DELETE CASCADE, status varchar(30) NOT NULL DEFAULT 'RUNNING', started_at timestamptz NOT NULL DEFAULT now(), finished_at timestamptz, cursor_before text, cursor_after text, imported_count integer NOT NULL DEFAULT 0, skipped_count integer NOT NULL DEFAULT 0, error_count integer NOT NULL DEFAULT 0, error text);
+CREATE INDEX IF NOT EXISTS sync_runs_connection_idx ON sync_runs(connection_id, started_at DESC);
+CREATE TABLE IF NOT EXISTS device_registrations (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE, device_id varchar(255) NOT NULL, platform varchar(30) NOT NULL, push_token_encrypted text, last_seen_at timestamptz NOT NULL DEFAULT now(), metadata jsonb NOT NULL DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(), UNIQUE(user_id, device_id));
+CREATE INDEX IF NOT EXISTS device_registrations_user_idx ON device_registrations(user_id);
