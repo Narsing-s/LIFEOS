@@ -3,24 +3,15 @@
   "version": "1.0.0",
   "private": true,
   "main": "expo-router/entry",
-  "scripts": {
-    "dev": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web",
-    "typecheck": "tsc --noEmit",
-    "build": "expo export"
-  },
+  "scripts": {"dev":"expo start","android":"expo start --android","ios":"expo start --ios","web":"expo start --web","typecheck":"tsc --noEmit","build":"expo export"},
   "dependencies": {
-    "expo": "^54.0.0",
-    "expo-router": "^6.0.0",
-    "expo-secure-store": "^15.0.0",
-    "react": "19.1.0",
-    "react-native": "0.81.4",
-    "react-native-safe-area-context": "5.6.0"
+    "expo":"^54.0.0",
+    "expo-constants":"^18.0.0",
+    "expo-router":"^6.0.0",
+    "expo-secure-store":"^15.0.0",
+    "react":"19.1.0",
+    "react-native":"0.81.4",
+    "react-native-safe-area-context":"5.6.0"
   },
-  "devDependencies": {
-    "@types/react": "^19.1.10",
-    "typescript": "^5.7.3"
-  }
+  "devDependencies": {"@types/react":"^19.1.10","typescript":"^5.7.3"}
 }
