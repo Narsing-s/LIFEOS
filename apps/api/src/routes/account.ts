@@ -26,6 +26,7 @@ export async function accountRoutes(app: FastifyInstance) {
     if(!user || !(await bcrypt.compare(body.currentPassword,user.passwordHash))) return reply.code(401).send({error:'Current password is incorrect'});
     if(body.currentPassword===body.newPassword) return reply.code(400).send({error:'New password must be different from the current password'});
     await app.prisma.user.update({where:{id:request.user.id},data:{passwordHash:await bcrypt.hash(body.newPassword,12)}});
+    await app.prisma.auditLog.create({data:{userId:request.user.id,actorType:'USER',action:'PASSWORD_CHANGED',resourceType:'ACCOUNT',metadata:{}}});
     return {ok:true,message:'Password changed. Sign in again on other devices.'};
   });
 
@@ -76,6 +77,7 @@ export async function accountRoutes(app: FastifyInstance) {
     // File bytes live outside PostgreSQL, so remove the per-user storage tree too.
     const storageDir = process.env.STORAGE_DIR ?? './storage';
     const userStorageDir = path.join(storageDir, uid);
+    await app.prisma.auditLog.create({data:{userId:uid,actorType:'USER',action:'ACCOUNT_DELETION_REQUESTED',resourceType:'ACCOUNT',metadata:{}}});
     await app.prisma.user.delete({ where: { id: uid } });
     try {
       await rm(userStorageDir, { recursive: true, force: true });
