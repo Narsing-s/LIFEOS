@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { Prisma } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { decryptSecret } from '../services/crypto.js';
@@ -16,6 +17,18 @@ async function revokeGoogleToken(token: string) {
 }
 
 export async function accountRoutes(app: FastifyInstance) {
+  app.post('/account/password', { preHandler: requireAuth, config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } }, async (request, reply) => {
+    const body=(request.body ?? {}) as {currentPassword?:string;newPassword?:string};
+    if(typeof body.currentPassword!=='string' || typeof body.newPassword!=='string' || body.newPassword.length<8 || body.newPassword.length>128){
+      return reply.code(400).send({error:'Current password and a new password between 8 and 128 characters are required'});
+    }
+    const user=await app.prisma.user.findUnique({where:{id:request.user.id},select:{passwordHash:true}});
+    if(!user || !(await bcrypt.compare(body.currentPassword,user.passwordHash))) return reply.code(401).send({error:'Current password is incorrect'});
+    if(body.currentPassword===body.newPassword) return reply.code(400).send({error:'New password must be different from the current password'});
+    await app.prisma.user.update({where:{id:request.user.id},data:{passwordHash:await bcrypt.hash(body.newPassword,12)}});
+    return {ok:true,message:'Password changed. Sign in again on other devices.'};
+  });
+
   app.get('/account/export', { preHandler: requireAuth }, async request => {
     const uid = request.user.id;
     const [user, preferences, tasks, memories, assets, documents, expenses, trips, conversations, entities, timeline, inbox, integrations, financeSubscriptions, budgets, goals, notifications, automations, syncRuns] = await Promise.all([
