@@ -50,6 +50,7 @@ export async function documentRoutes(app: FastifyInstance) {
     const document = await app.prisma.document.findFirst({where:{id,userId:request.user.id,deletedAt:null},select:{id:true,storageKey:true}});
     if (!document) return reply.code(404).send({error:'Document not found'});
     await app.prisma.document.update({where:{id:document.id},data:{deletedAt:new Date(),status:'DELETED'}});
+    await app.prisma.auditLog.create({data:{userId:request.user.id,actorType:'USER',action:'DOCUMENT_DELETED',resourceType:'DOCUMENT',resourceId:document.id,metadata:{storageKey:document.storageKey}}});
     const root = path.resolve(storageRoot());
     const absolute = path.resolve(root, document.storageKey);
     if (absolute === root || !absolute.startsWith(`${root}${path.sep}`)) request.log.warn({documentId:id}, 'Skipped unsafe document storage path');
