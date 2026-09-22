@@ -6,7 +6,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "build": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "lint": "eslint .",
     "typecheck": "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/lifeos prisma validate"
   },
