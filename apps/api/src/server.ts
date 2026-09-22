@@ -13,7 +13,10 @@ import { expansionRoutes } from './routes/expansion.js';
 import { healthExpansionRoutes } from './routes/health-expansion.js';
 import { accountRoutes } from './routes/account.js';
 
-const app = Fastify({ logger:true, bodyLimit:2*1024*1024 });
+const app = Fastify({ logger:true, bodyLimit:2*1024*1024, trustProxy: env.TRUST_PROXY });
+app.addHook('onSend', async (request, reply) => {
+  reply.header('X-Request-Id', request.id);
+});
 await app.register(helmet);
 await app.register(cors,{origin:env.WEB_ORIGIN,credentials:true});
 await app.register(rateLimit,{max:100,timeWindow:'1 minute'});
