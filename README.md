@@ -101,3 +101,15 @@ Before a public production launch, verify every item below with the target deplo
 Provider credentials and external APIs are intentionally not bundled into the repository. A connected-provider feature is not considered production-ready until its real API import, refresh, retry, deduplication and deletion behavior has been tested in staging.
 
 See `docs/architecture/overview.md`, `docs/api/openapi.yaml`, and `docs/product/v1.md` for deeper contracts.
+
+## Audit implementation notes
+
+The current codebase has also been hardened with several product-completeness fixes:
+
+- CI web typechecking includes React and React DOM type declarations.
+- API requests expose a correlation ID through X-Request-Id for production troubleshooting.
+- Reverse-proxy trust is explicit through TRUST_PROXY rather than implicitly trusting forwarded headers.
+- Core user data now has authenticated CRUD coverage for tasks, memories, assets and reminders, including ownership checks.
+- Account password changes are protected by authentication and a dedicated rate limit.
+
+These changes preserve the existing API-led architecture and user-scoped authorization model; they do not introduce a second implementation of existing features.
