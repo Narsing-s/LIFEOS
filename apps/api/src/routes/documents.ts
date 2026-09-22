@@ -1,12 +1,14 @@
 import type { FastifyInstance } from 'fastify';
-import { mkdir, rm, writeFile, createReadStream, access } from 'node:fs/promises';
+import { mkdir, rm, writeFile, access } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { requireAuth } from '../middleware/auth.js';
 import { Queue } from 'bullmq';
 import IORedis from 'ioredis';
 
-const redis = new IORedis(process.env.REDIS_URL ?? 'redis://localhost:6379', { maxRetriesPerRequest: null });
+const RedisClient = IORedis as unknown as new (url: string, options: { maxRetriesPerRequest: null }) => any;
+const redis = new RedisClient(process.env.REDIS_URL ?? 'redis://localhost:6379', { maxRetriesPerRequest: null });
 const documentQueue = new Queue('document-processing', { connection: redis });
 
 const allowed = new Set(['application/pdf','image/png','image/jpeg','text/plain','text/csv']);
@@ -60,7 +62,7 @@ export async function documentRoutes(app: FastifyInstance) {
     const root = path.resolve(storageRoot());
     const absolute = path.resolve(root, document.storageKey);
     if (absolute === root || !absolute.startsWith(`${root}${path.sep}`)) request.log.warn({documentId:id}, 'Skipped unsafe document storage path');
-    else await rm(absolute, {force:true}).catch(error => request.log.error({error,documentId:id}, 'Document metadata deleted but file cleanup failed'));
+    else await rm(absolute,{force:true}).catch(error => request.log.error({error,documentId:id}, 'Document metadata deleted but file cleanup failed'));
     return reply.code(204).send();
   });
 }
