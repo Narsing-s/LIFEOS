@@ -3,6 +3,11 @@ import { mkdir, rm, writeFile, createReadStream, access } from 'node:fs/promises
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { requireAuth } from '../middleware/auth.js';
+import { Queue } from 'bullmq';
+import IORedis from 'ioredis';
+
+const redis = new IORedis(process.env.REDIS_URL ?? 'redis://localhost:6379', { maxRetriesPerRequest: null });
+const documentQueue = new Queue('document-processing', { connection: redis });
 
 const allowed = new Set(['application/pdf','image/png','image/jpeg','text/plain','text/csv']);
 const storageRoot = () => process.env.STORAGE_DIR ?? './storage';
@@ -21,9 +26,10 @@ export async function documentRoutes(app: FastifyInstance) {
     await writeFile(absolute, buffer, {flag:'wx'});
     const checksum = createHash('sha256').update(buffer).digest('hex');
     try {
-      const document = await app.prisma.document.create({data:{userId:request.user.id,title:file.filename,documentType:file.mimetype==='application/pdf'?'PDF':file.mimetype.startsWith('image/')?'IMAGE':'TEXT',mimeType:file.mimetype,fileSize:buffer.length,storageKey:key,status:'UPLOADED'}});
+      const document = await app.prisma.document.create({data:{userId:request.user.id,title:file.filename,documentType:file.mimetype==='application/pdf'?'PDF':file.mimetype.startsWith('image/')?'IMAGE':'TEXT',mimeType:file.mimetype,fileSize:buffer.length,storageKey:key,status:'QUEUED'}});
       await app.prisma.documentVersion.create({data:{documentId:document.id,version:1,storageKey:key,checksum}});
-      return reply.code(201).send(document);
+      await documentQueue.add('process-document',{documentId:document.id,userId:request.user.id},{jobId:document.id,attempts:3,backoff:{type:'exponential',delay:2000},removeOnComplete:100,removeOnFail:100});
+      return reply.code(201).send({...document,status:'QUEUED'});
     } catch (error) {
       await rm(absolute, {force:true}).catch(cleanupError => request.log.error({cleanupError,key}, 'Failed to clean up orphaned upload'));
       throw error;
