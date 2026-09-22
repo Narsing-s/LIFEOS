@@ -8,7 +8,7 @@
     "build": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint .",
-    "typecheck": "prisma validate"
+    "typecheck": "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/lifeos prisma validate"
   },
   "dependencies": {
     "@prisma/client": "^6.3.1"
