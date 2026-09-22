@@ -15,7 +15,7 @@ export async function expansionRoutes(app: FastifyInstance) {
   app.get('/integrations/google/callback', async (r, reply) => {
     const q = z.object({ code:z.string().min(1), state:z.string().min(1) }).parse(r.query);
     let state: {userId:string;nonce:string};
-    try { state = jwt.verify(q.state, env.JWT_SECRET) as {userId:string;nonce:string}; } catch { return reply.code(400).send({error:'Invalid or expired OAuth state'}); }
+    try { state = jwt.verify(q.state, env.JWT_SECRET ?? 'development-only-change-this-secret-please') as unknown as {userId:string;nonce:string}; } catch { return reply.code(400).send({error:'Invalid or expired OAuth state'}); }
     if (!state.userId || !state.nonce) return reply.code(400).send({error:'Invalid OAuth state'});
     const consumed = await app.prisma.$queryRaw<{user_id:string}[]>(Prisma.sql`DELETE FROM oauth_states WHERE user_id=${state.userId} AND state_hash=${createHash('sha256').update(state.nonce).digest('hex')} AND expires_at > now() RETURNING user_id`);
     if (!consumed[0]) return reply.code(400).send({error:'OAuth state was already used or expired'});
@@ -31,7 +31,7 @@ export async function expansionRoutes(app: FastifyInstance) {
     const digest = createHash('sha256').update(nonce).digest('hex');
     await app.prisma.$executeRaw(Prisma.sql`DELETE FROM oauth_states WHERE expires_at <= now()`);
     await app.prisma.$executeRaw(Prisma.sql`INSERT INTO oauth_states(user_id,state_hash,expires_at) VALUES(${r.user.id},${digest},now()+interval '10 minutes')`);
-    return { authorizationUrl: googleAuthorizationUrl(jwt.sign({userId:r.user.id,nonce},env.JWT_SECRET,{expiresIn:'10m'})) };
+    return { authorizationUrl: googleAuthorizationUrl(jwt.sign({userId:r.user.id,nonce},env.JWT_SECRET ?? 'development-only-change-this-secret-please',{expiresIn:'10m'})) };
   });
 
   app.delete('/integrations/:id', async (r, reply) => { const {id}=idParam.parse(r.params); const rows=await app.prisma.$queryRaw<{provider:string;access_token_encrypted:string|null}[]>(Prisma.sql`SELECT provider,access_token_encrypted FROM integration_connections WHERE id=${id} AND user_id=${r.user.id} LIMIT 1`); if(!rows[0]) return reply.code(404).send({error:'Integration not found'}); if(rows[0].provider==='GOOGLE'&&rows[0].access_token_encrypted){try{await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(decryptSecret(rows[0].access_token_encrypted))}`,{method:'POST'});}catch{}} await app.prisma.$executeRaw(Prisma.sql`DELETE FROM integration_connections WHERE id=${id} AND user_id=${r.user.id}`); return {ok:true}; });
