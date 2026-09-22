@@ -22,7 +22,12 @@ await app.register(cors,{origin:env.WEB_ORIGIN,credentials:true});
 await app.register(rateLimit,{max:100,timeWindow:'1 minute'});
 await app.register(multipart,{limits:{fileSize:25*1024*1024,files:1}});
 await app.register(prismaPlugin);
-app.setErrorHandler((error,request,reply)=>{request.log.error(error);const status=(error as any).statusCode??(error.name==='ZodError'?400:500);reply.code(status).send({error:status>=500?'Internal server error':error.message});});
+app.setErrorHandler((error,request,reply)=>{
+  request.log.error(error);
+  const status=(error as any).statusCode ?? (error instanceof Error && error.name==='ZodError' ? 400 : 500);
+  const message=error instanceof Error ? error.message : 'Unknown error';
+  reply.code(status).send({error:status>=500?'Internal server error':message});
+});
 app.get('/health',async()=>({ok:true,service:'lifeos-api',version:'1.9.0'}));
 app.get('/ready',async(_,reply)=>{try{await app.prisma.$queryRaw`SELECT 1`;return {ok:true,service:'lifeos-api',database:'ready'};}catch{return reply.code(503).send({ok:false,service:'lifeos-api',database:'unavailable'});}});
 app.get('/api/v1',async()=>({name:'LIFEOS API',version:'v1',capabilities:['auth','dashboard','search','documents','memories','tasks','assets','assistant','integrations','timeline','inbox','finance','notifications','automations','sync','sync-history','life-overview','account-export','account-delete']}));
